@@ -1,0 +1,258 @@
+Interfaces de Rede
+--------------------------------------------------
+ip 172.24.1.1/30 bgp borda s/ internet
+ip 172.24.1.2/30 bgp Fastnetmon s/internet
+ip 172.24.10.10/24 ip com internet
+-----------------------------------------
+# The primary network interface
+allow-hotplug ens192
+iface ens192 inet static
+        address 172.24.10.10/24
+        gateway 172.24.10.1
+        # dns-* options are implemented by the resolvconf package, if installed
+        dns-nameservers 8.8.8.8
+allow-hotplug ens224
+iface ens224 inet static
+        address 172.24.1.2/30
+       
+
+-------------------------------------------
+Fastnetmon
+------------------------------------------------
+# apt install wget tcpdump net-tools zip curl
+# cd /tmp/
+# wget https://install.fastnetmon.com/installer -Oinstaller
+# chmod +x installer
+# ./installer -install_community_edition
+----------------------------------------------------------------
+# vim /etc/networks_list
+72.72.72.0/22
+---------------------------------------------------------------
+# sed -i 's/netflow = off/netflow = on/' /etc/fastnetmon.conf
+---------------------------------------------------------------------
+# sed -i 's/average_calculation_time = 5/average_calculation_time = 60/' /etc/fastnetmon.conf
+# sed -i 's/average_calculation_time_for_subnets = 5/average_calculation_time_for_subnets = 60/' /etc/fastnetmon.conf
+-------------------------------------------------------------------------------------------------------------------------------------
+# sed -i 's/ban_time = 1900/ban_time = 600/' /etc/fastnetmon.conf
+-----------------------------------------------------------------------
+# sed -i 's/enable_subnet_counters = off/enable_subnet_counters = on/' /etc/fastnetmon.conf
+----------------------------------------------------------------------------------------------------
+# sed -i 's/ban_for_flows = off/ban_for_flows = on/' /etc/fastnetmon.conf
+-----------------------------------------------------------------------------------------
+# sed -i 's/threshold_pps = 20000/threshold_pps = 50000/' /etc/fastnetmon.conf
+--------------------------------------------------------------------------------------------------
+# sed -i 's/netflow_port = 2055/netflow_port = 52055/' /etc/fastnetmon.conf
+--------------------------------------------------------------------------------------------------
+# sed -i 's/netflow_host = 0.0.0.0/netflow_host = 172.24.1.2/' /etc/fastnetmon.conf
+----------------------------------------------------------------------------------------------------------
+# systemctl enable fastnetmon
+# systemctl restart fastnetmon
+-----------------------------------------------------------------------------------------------------------------
+# netstat -putan  | grep 52055
+----------------------------------------------------------------------------------------------------------------
+Mikrotik
+
+/ip traffic-flow set active-flow-timeout=1m cache-entries=4k enabled=yes interfaces="sfp1,VLAN.1234-PTT"
+/ip traffic-flow target add dst-address=172.24.1.2 port=52055
+
+/routing filter
+add action=accept chain=FastNetMon-IN set-type=blackhole
+add action=discard chain=FastNetMon-OUT
+
+/routing bgp peer
+add name=FastNetMon instance=default remote-as=65001 multihop=no  \
+ in-filter=FastNetMon-IN out-filter=FastNetMon-OUT \
+ remote-address=172.24.1.2 update-source=172.24.1.1
+
+ /routing filter
+add action=accept  chain=ASXXXX-IPv4-OUT bgp-communities=65001:666 prefix-length=32 set-bgp-communities=XXXX:666
+----------------------------------------------------------------------------------------------------------------------------
+Fastnetmon
+
+# tcpdump -i ens224 -n udp port 52055 -T cnfp -c 10
+# fastnetmon_client
+---------------------------------------------------------------------------------------------
+# > /etc/networks_whitelist
+# vim /etc/networks_whitelist
+	72.72.72.224/28
+	72.72.73.224/28
+----------------------------------------------------------------------------------------------
+# systemctl restart fastnetmon
+-------------------------------------------------------------------------------------
+Bot Telegram
+
+# cd /tmp/
+# wget https://github.com/remontti/TelegramCMD/archive/master.zip
+# unzip /tmp/master.zip
+# chmod a+x /tmp/TelegramCMD-master/telegram
+# mv /tmp/TelegramCMD-master/telegram* /usr/local/bin/
+# ln -s /usr/local/bin/telegram /bin/telegram
+----------------------------------------------------------------------------------
+# vim /usr/local/bin/telegram.conf/token.conf
+
+######################################
+# Telegram bot                       #
+# Create a new bot with @BotFather   #
+# get TOKEN                          #
+######################################
+ 
+TOKEN="123456789:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+--------------------------------------------------------------------------------------
+FRR
+
+# apt install curl apt-transport-https gnupg2 tree net-tools
+# curl -s https://deb.frrouting.org/frr/keys.asc | apt-key add -
+# echo deb https://deb.frrouting.org/frr bullseye frr-8 | tee -a /etc/apt/sources.list.d/frr.list
+# apt update
+# apt install frr frr-doc
+-----------------------------------------------------------------------------------------------------------
+# echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf
+# echo "net.ipv4.conf.all.rp_filter = 0" >> /etc/sysctl.conf
+# echo "net.ipv4.conf.default.rp_filter = 0" >> /etc/sysctl.conf
+# echo "net.ipv4.conf.lo.rp_filter = 0" >> /etc/sysctl.conf
+# echo "net.ipv4.conf.`ip -br link |awk '{print $1}' |grep -v lo`.rp_filter = 0" >> /etc/sysctl.conf
+# sysctl -p
+-------------------------------------------------------------------------------------------------------------
+# sed -i 's/bgpd=no/bgpd=yes/' /etc/frr/daemons
+----------------------------------------------------------------------------------------
+# systemctl restart frr
+-----------------------------------------------------------
+# vtysh
+
+configure terminal
+!
+ip prefix-list FASTNETMON_EXPORT seq 5 permit 72.72.72.0/23 le 32
+ip prefix-list FASTNETMON_EXPORT seq 10 permit 72.72.74.0/23 le 32
+!
+!
+route-map MARK_FASTNETMON_IMPORT deny 10
+!
+route-map MARK_FASTNETMON_EXPORT permit 10
+ match ip address prefix-list FASTNETMON_EXPORT
+ set community 65001:666
+!
+router bgp 65001
+ bgp router-id 172.24.1.2
+ neighbor 172.24.10.1 remote-as XXXXX
+ neighbor 172.24.10.1 description "MIKROTIK"
+# neighbor 172.24.10.1 ebgp-multihop 255 # (Caso seja multihop)
+ !
+ address-family ipv4 unicast
+  neighbor 172.24.10.1 route-map MARK_FASTNETMON_IMPORT in
+  neighbor 172.24.10.1 route-map MARK_FASTNETMON_EXPORT out
+ exit-address-family
+!
+line vty
+!
+end
+write memory
+exit
+------------------------------------------------------------------------------
+# vtysh
+# show bgp summary
+------------------------------------------------------------------------------------
+Grupo Para Receber os Alertas
+
+# mkdir /var/log/fastnetmon_attacks/ataques -p
+# vim /usr/local/bin/notify_about_attack.sh
+
+		#!/usr/bin/env bash
+  
+		# Este script receberá os seguintes parâmetros:
+		#  $1 IP do cliente
+		#  $2 INCOMING -> Vindo de fora da rede | OUTGOING -> Saindo da sua rede
+		#  $3 Pacotes por seguncoes
+		#  $4 Ação (ban ou unban)
+ 
+		# Defina o ID do Chat ou Grupo (Grupos sempre começam com "-" )
+		ID_CHAT='-1000000000000'
+ 
+		if [ "$2" = "incoming" ]; then
+  			TIPO="Sendo atacado"
+		else 
+  			TIPO="Realizando um ataque"
+		fi
+ 
+		# Desbanindo um IP
+		if [ "$4" = "unban" ]; then
+  			/usr/local/bin/telegram -m "$ID_CHAT" "UNBAN IP: <code>$1</code>" "<code>->></code> Removido da blackhole"
+  			# Remove IP do anuncio para o FRR
+  			vtysh --command "configure terminal
+  			no ip route $1/32 lo
+  			router bgp 65001
+   			 address-family ipv4 unicast
+    		  no network $1/32
+  			"
+  			# Movemos os logs para pasta ataques pois não queremos mais receber elas.
+  			mv /var/log/fastnetmon_attacks/$1* /var/log/fastnetmon_attacks/ataques
+  			exit 0
+		fi
+ 
+		# Banindo um IP
+		if [ "$4" = "ban" ]; then
+  			/usr/local/bin/telegram -m "$ID_CHAT" "BAN IP: <code>$1</code> $TIPO <b>[$3 pps]</b>" "<code>->></code> Anunciado em blackhole"
+  			/usr/local/bin/telegram -f "$ID_CHAT" /var/log/fastnetmon_attacks/$1* $1 "Logs do ataque ao IP $1"
+  			# Anuncia IP ao FRR
+  			vtysh --command "configure terminal
+  			ip route $1/32 lo
+  			router bgp 65001
+   			 address-family ipv4 unicast
+    		  network $1/32
+  			"
+    		exit 0
+		fi
+ 
+		if [ "$4" == "attack_details" ]; then
+  			#/usr/local/bin/telegram -m "$ID_CHAT" "BAN" "<code>FastNetMon: IP $1 blocked because $2 attack with power $3 pps</code>"
+  			exit 0
+		fi
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+chmod a+x /usr/local/bin/notify_about_attack.sh
+----------------------------------------------------------------------------------------------------------------------
+# systemctl restart fastnetmon
+--------------------------------------------------------
+# vtysh --command " show ip bgp neighbors 172.24.10.1 advertised-routes"
+-----------------------------------------------------------------------------------
+Grafana
+
+# sed -i 's/graphite = off/graphite = on/' /etc/fastnetmon.conf
+
+# apt install lsb-release gnupg2 curl wget
+# wget -q https://repos.influxdata.com/influxdata-archive_compat.key
+# echo '393e8779c89ac8d958f81f942f9ad7fb82a25e133faddaf92e15b16e6ac9ce4c influxdata-archive_compat.key' \
+  | sha256sum -c && cat influxdata-archive_compat.key \
+  | gpg --dearmor \
+  | tee /etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg > /dev/null
+# echo 'deb [signed-by=/etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg] https://repos.influxdata.com/debian stable main'\
+  | tee /etc/apt/sources.list.d/influxdata.list
+# apt update
+# apt install influxdb
+---------------------------------------------------------------------------------------------------------------------------------------------
+vim /etc/influxdb/influxdb.conf
+
+[[graphite]]
+  enabled = true
+  bind-address = ":2003"
+  protocol = "tcp"
+  consistency-level = "one"
+  separator = "."
+  batch-size = 5000 # will flush if this many points get buffered
+  batch-timeout = "1s" # will flush at least this often even if we haven't hit buffer limit
+  templates = [
+    "fastnetmon.hosts.* app.measurement.cidr.direction.function.resource",
+    "fastnetmon.networks.* app.measurement.cidr.direction.resource",
+    "fastnetmon.total.* app.measurement.direction.resource"
+  ]
+ ----------------------------------------------------------------------------------------------------------
+ systemctl restart influxdb
+ ------------------------------
+ systemctl restart fastnetmon
+ --------------------------------------
+ # influx
+ -------------------------------
+ > use graphite
+
+ > show measurements
+
+ > exit
+ ----------------------------------------------
